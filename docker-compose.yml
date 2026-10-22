@@ -1,0 +1,52 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: ticketflash-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - ticketflash_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ticketflash-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  api:
+    build: .
+    container_name: ticketflash-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: ticketflash
+      REDIS_URL: redis://redis:6379/0
+      CACHE_TTL_SEGUNDOS: 60
+      RESERVA_TTL_SEGUNDOS: 600
+      LIMITE_RESERVAS_POR_MINUTO: 10
+      JANELA_LIMITE_SEGUNDOS: 60
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  ticketflash_mongo_data:
+    name: ticketflash_mongo_data
