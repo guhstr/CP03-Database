@@ -1,174 +1,61 @@
-### TicketFlash - Requisições de Demonstração e Avaliação (REST Client / Insomnia)
-### Checkpoint 3 - Mastering Relational and Non-Relational Database
+### Use a extensao "REST Client" (VS Code) ou importe no Insomnia.
 @base = http://localhost:8000
+# Pegue os ids reais em GET /eventos e GET /usuarios e cole abaixo:
+@evento_id = COLE_AQUI
+@usuario_id = COLE_AQUI
 
-# ==============================================================================
-# 0. VERIFICAÇÃO DE SAÚDE DA API
-# ==============================================================================
-### Checar status geral e conectividade dos bancos (MongoDB + Redis)
-GET {{base}}/health
+### Listar usuarios
+GET {{base}}/usuarios
 
-### Raiz da API e resumo dos endpoints
-GET {{base}}/
-
-# ==============================================================================
-# 1. USUÁRIOS
-# ==============================================================================
-### Listar usuários cadastrados
-# @name getUsuarios
-GET {{base}}/usuarios?limit=10
-
-### Criar novo usuário (sucesso -> 201)
-# @name criarUsuario
+### Criar usuario
 POST {{base}}/usuarios
 Content-Type: application/json
 
-{
-  "nome": "Gustavo Sartori Teste",
-  "email": "gustavo.teste@fiap.com.br",
-  "cidade": "São Paulo"
-}
+{"nome": "Gustavo Sartori", "email": "gustavo.sartori@fiap.com.br", "cidade": "Sao Paulo"}
 
-### Teste de unicidade de e-mail (repetir o mesmo e-mail -> 409 Conflict)
-POST {{base}}/usuarios
-Content-Type: application/json
+### Listar eventos (filtros opcionais)
+GET {{base}}/eventos?categoria=Show&cidade=Sao Paulo
 
-{
-  "nome": "Gustavo Duplicado",
-  "email": "gustavo.teste@fiap.com.br",
-  "cidade": "São Paulo"
-}
-
-# ==============================================================================
-# 2. CRUD DE EVENTOS (Requisito 2) E FILTROS NO BANCO
-# ==============================================================================
-### Listar todos os eventos (ou com filtros por categoria e cidade)
-# @name getEventos
-GET {{base}}/eventos?categoria=Show&cidade=São Paulo
-
-### Criar novo evento (Setores embutidos - Req. 1 e 2)
-# @name criarEvento
+### Criar evento
 POST {{base}}/eventos
 Content-Type: application/json
 
-{
-  "nome": "Festival Rock Sinfônico 2026",
-  "categoria": "Festival",
-  "data": "2026-11-25T20:30:00",
-  "local": {
-    "cidade": "São Paulo",
-    "endereco": "Allianz Parque - Av. Francisco Matarazzo, 1705"
-  },
-  "atracoes": ["Orquestra Rock", "Vocalistas Convidados"],
-  "setores": [
-    {
-      "nome": "Pista",
-      "preco": 140.0,
-      "capacidade": 300,
-      "vendidos": 0
-    },
-    {
-      "nome": "Camarote VIP",
-      "preco": 480.0,
-      "capacidade": 50,
-      "vendidos": 0
-    }
-  ]
-}
+{"nome": "Show Teste", "categoria": "Show", "data": "2026-12-20T21:00:00",
+ "local": {"cidade": "Sao Paulo", "endereco": "Av. Paulista, 1000"}, "atracoes": ["Titas"],
+ "setores": [{"nome": "Pista", "preco": 120, "capacidade": 200}]}
 
-# ==============================================================================
-# 3. DEMONSTRAÇÃO DO CACHE-ASIDE (Requisitos 5 e 7)
-# Cole abaixo um ID válido obtido em GET /eventos:
-# ==============================================================================
-# IDs de exemplo pré-configurados do seed:
-@evento_id = 6ada13445c6837d41cd26dbf
-@usuario_id = 6ada13445c6837d41cd26dce
-
-### Buscar evento por ID - Chamada 1 (Cache Miss -> retorna "origem": "banco")
+### Buscar evento (chame 2x: banco -> cache)
 GET {{base}}/eventos/{{evento_id}}
 
-### Buscar evento por ID - Chamada 2 (Cache Hit -> retorna "origem": "cache" e TTL de 60s)
-GET {{base}}/eventos/{{evento_id}}
-
-### Atualizar evento (Req. 2 e 9 - Atualiza no MongoDB e invalida chave evento:{id} no Redis)
+### Atualizar evento (invalida o cache)
 PUT {{base}}/eventos/{{evento_id}}
 Content-Type: application/json
 
-{
-  "nome": "Festival Rock Sinfônico 2026 - Edição Especial"
-}
+{"nome": "Nome Atualizado"}
 
-### Buscar novamente após update (Demonstra que o cache foi invalidado -> volta para "origem": "banco")
-GET {{base}}/eventos/{{evento_id}}
+### Remover evento
+DELETE {{base}}/eventos/{{evento_id}}
 
-# ==============================================================================
-# 4. RANKING DOS MAIS VISTOS (Requisito 7 - Redis Sorted Set)
-# ==============================================================================
-### Ranking Top 5 eventos mais acessados (alimentado automaticamente via ZINCRBY a cada consulta)
+### Ranking top 5
 GET {{base}}/eventos/ranking
 
-# ==============================================================================
-# 5. AGREGAÇÕES NO MONGODB (Requisito 4)
-# ==============================================================================
-### Relatório 1: Faturamento por Evento ($group + $lookup + $sort)
+### Faturamento por evento
 GET {{base}}/relatorios/faturamento
 
-### Relatório 2: Ocupação por Setor de um Evento ($unwind + $project)
+### Ocupacao por setor
 GET {{base}}/relatorios/ocupacao/{{evento_id}}
 
-# ==============================================================================
-# 6. ÍNDICE COMPOSTO E EXPLAIN() (Requisito 3)
-# ==============================================================================
-### Plano de Execução da Consulta (demonstra uso de IXSCAN no índice categoria_data)
+### explain() do indice composto
 GET {{base}}/admin/explain?categoria=Show
 
-# ==============================================================================
-# 7. FLUXO DE COMPRA, RESERVAS E RATE LIMIT (Requisitos 6, 8 e 10)
-# ==============================================================================
-### Criar Reserva Temporária (SET NX EX 600s - 10 min de bloqueio)
+### Reservar (chame 11x seguidas para ver o 429)
 POST {{base}}/reservas
 Content-Type: application/json
 
-{
-  "usuarioId": "{{usuario_id}}",
-  "eventoId": "{{evento_id}}",
-  "setor": "Pista",
-  "quantidade": 2
-}
+{"usuarioId": "{{usuario_id}}", "eventoId": "{{evento_id}}", "setor": "Pista", "quantidade": 2}
 
-### Teste de Rate Limit (Req. 8): Executar 11 vezes seguidas a mesma rota para obter HTTP 429 Too Many Requests
-POST {{base}}/reservas
-Content-Type: application/json
-
-{
-  "usuarioId": "{{usuario_id}}",
-  "eventoId": "{{evento_id}}",
-  "setor": "Pista",
-  "quantidade": 1
-}
-
-### Confirmar Pedido (Req. 10): Valida reserva no Redis via GETDEL, incrementa $inc atomicamente e publica Pub/Sub
+### Confirmar pedido (410 se a reserva expirou)
 POST {{base}}/pedidos/confirmar
 Content-Type: application/json
 
-{
-  "usuarioId": "{{usuario_id}}",
-  "eventoId": "{{evento_id}}",
-  "setor": "Pista"
-}
-
-### Tentativa de confirmar reserva já utilizada ou expirada (deve retornar HTTP 410 Gone)
-POST {{base}}/pedidos/confirmar
-Content-Type: application/json
-
-{
-  "usuarioId": "{{usuario_id}}",
-  "eventoId": "{{evento_id}}",
-  "setor": "Pista"
-}
-
-# ==============================================================================
-# 8. REMOÇÃO DE EVENTO (Req. 2 e 9)
-# ==============================================================================
-### Remover evento (invalida cache e remove do ranking no Redis)
-DELETE {{base}}/eventos/{{evento_id}}
+{"usuarioId": "{{usuario_id}}", "eventoId": "{{evento_id}}", "setor": "Pista"}
