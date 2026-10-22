@@ -1,0 +1,174 @@
+### TicketFlash - Requisições de Demonstração e Avaliação (REST Client / Insomnia)
+### Checkpoint 3 - Mastering Relational and Non-Relational Database
+@base = http://localhost:8000
+
+# ==============================================================================
+# 0. VERIFICAÇÃO DE SAÚDE DA API
+# ==============================================================================
+### Checar status geral e conectividade dos bancos (MongoDB + Redis)
+GET {{base}}/health
+
+### Raiz da API e resumo dos endpoints
+GET {{base}}/
+
+# ==============================================================================
+# 1. USUÁRIOS
+# ==============================================================================
+### Listar usuários cadastrados
+# @name getUsuarios
+GET {{base}}/usuarios?limit=10
+
+### Criar novo usuário (sucesso -> 201)
+# @name criarUsuario
+POST {{base}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Gustavo Sartori Teste",
+  "email": "gustavo.teste@fiap.com.br",
+  "cidade": "São Paulo"
+}
+
+### Teste de unicidade de e-mail (repetir o mesmo e-mail -> 409 Conflict)
+POST {{base}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Gustavo Duplicado",
+  "email": "gustavo.teste@fiap.com.br",
+  "cidade": "São Paulo"
+}
+
+# ==============================================================================
+# 2. CRUD DE EVENTOS (Requisito 2) E FILTROS NO BANCO
+# ==============================================================================
+### Listar todos os eventos (ou com filtros por categoria e cidade)
+# @name getEventos
+GET {{base}}/eventos?categoria=Show&cidade=São Paulo
+
+### Criar novo evento (Setores embutidos - Req. 1 e 2)
+# @name criarEvento
+POST {{base}}/eventos
+Content-Type: application/json
+
+{
+  "nome": "Festival Rock Sinfônico 2026",
+  "categoria": "Festival",
+  "data": "2026-11-25T20:30:00",
+  "local": {
+    "cidade": "São Paulo",
+    "endereco": "Allianz Parque - Av. Francisco Matarazzo, 1705"
+  },
+  "atracoes": ["Orquestra Rock", "Vocalistas Convidados"],
+  "setores": [
+    {
+      "nome": "Pista",
+      "preco": 140.0,
+      "capacidade": 300,
+      "vendidos": 0
+    },
+    {
+      "nome": "Camarote VIP",
+      "preco": 480.0,
+      "capacidade": 50,
+      "vendidos": 0
+    }
+  ]
+}
+
+# ==============================================================================
+# 3. DEMONSTRAÇÃO DO CACHE-ASIDE (Requisitos 5 e 7)
+# Cole abaixo um ID válido obtido em GET /eventos:
+# ==============================================================================
+# IDs de exemplo pré-configurados do seed:
+@evento_id = 6ada13445c6837d41cd26dbf
+@usuario_id = 6ada13445c6837d41cd26dce
+
+### Buscar evento por ID - Chamada 1 (Cache Miss -> retorna "origem": "banco")
+GET {{base}}/eventos/{{evento_id}}
+
+### Buscar evento por ID - Chamada 2 (Cache Hit -> retorna "origem": "cache" e TTL de 60s)
+GET {{base}}/eventos/{{evento_id}}
+
+### Atualizar evento (Req. 2 e 9 - Atualiza no MongoDB e invalida chave evento:{id} no Redis)
+PUT {{base}}/eventos/{{evento_id}}
+Content-Type: application/json
+
+{
+  "nome": "Festival Rock Sinfônico 2026 - Edição Especial"
+}
+
+### Buscar novamente após update (Demonstra que o cache foi invalidado -> volta para "origem": "banco")
+GET {{base}}/eventos/{{evento_id}}
+
+# ==============================================================================
+# 4. RANKING DOS MAIS VISTOS (Requisito 7 - Redis Sorted Set)
+# ==============================================================================
+### Ranking Top 5 eventos mais acessados (alimentado automaticamente via ZINCRBY a cada consulta)
+GET {{base}}/eventos/ranking
+
+# ==============================================================================
+# 5. AGREGAÇÕES NO MONGODB (Requisito 4)
+# ==============================================================================
+### Relatório 1: Faturamento por Evento ($group + $lookup + $sort)
+GET {{base}}/relatorios/faturamento
+
+### Relatório 2: Ocupação por Setor de um Evento ($unwind + $project)
+GET {{base}}/relatorios/ocupacao/{{evento_id}}
+
+# ==============================================================================
+# 6. ÍNDICE COMPOSTO E EXPLAIN() (Requisito 3)
+# ==============================================================================
+### Plano de Execução da Consulta (demonstra uso de IXSCAN no índice categoria_data)
+GET {{base}}/admin/explain?categoria=Show
+
+# ==============================================================================
+# 7. FLUXO DE COMPRA, RESERVAS E RATE LIMIT (Requisitos 6, 8 e 10)
+# ==============================================================================
+### Criar Reserva Temporária (SET NX EX 600s - 10 min de bloqueio)
+POST {{base}}/reservas
+Content-Type: application/json
+
+{
+  "usuarioId": "{{usuario_id}}",
+  "eventoId": "{{evento_id}}",
+  "setor": "Pista",
+  "quantidade": 2
+}
+
+### Teste de Rate Limit (Req. 8): Executar 11 vezes seguidas a mesma rota para obter HTTP 429 Too Many Requests
+POST {{base}}/reservas
+Content-Type: application/json
+
+{
+  "usuarioId": "{{usuario_id}}",
+  "eventoId": "{{evento_id}}",
+  "setor": "Pista",
+  "quantidade": 1
+}
+
+### Confirmar Pedido (Req. 10): Valida reserva no Redis via GETDEL, incrementa $inc atomicamente e publica Pub/Sub
+POST {{base}}/pedidos/confirmar
+Content-Type: application/json
+
+{
+  "usuarioId": "{{usuario_id}}",
+  "eventoId": "{{evento_id}}",
+  "setor": "Pista"
+}
+
+### Tentativa de confirmar reserva já utilizada ou expirada (deve retornar HTTP 410 Gone)
+POST {{base}}/pedidos/confirmar
+Content-Type: application/json
+
+{
+  "usuarioId": "{{usuario_id}}",
+  "eventoId": "{{evento_id}}",
+  "setor": "Pista"
+}
+
+# ==============================================================================
+# 8. REMOÇÃO DE EVENTO (Req. 2 e 9)
+# ==============================================================================
+### Remover evento (invalida cache e remove do ranking no Redis)
+DELETE {{base}}/eventos/{{evento_id}}
